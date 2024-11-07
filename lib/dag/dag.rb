@@ -67,9 +67,9 @@ module Dag
 
       validates ancestor_type_column_name.to_sym, presence: true
       validates descendant_type_column_name.to_sym, presence: true
-      validates ancestor_id_column_name.to_sym,
-                uniqueness: { scope: [ancestor_type_column_name, descendant_type_column_name,
-                                      descendant_id_column_name] }
+      uniqueness_scope = [ancestor_type_column_name, descendant_type_column_name, descendant_id_column_name]
+      uniqueness_scope << scoped_record_id_column_name.to_sym if scoped_record_id_column_name.present?
+      validates ancestor_id_column_name.to_sym, uniqueness: { scope: uniqueness_scope }
 
       scope :with_ancestor, lambda { |ancestor, scoped_record_id = nil|
         scope = where(ancestor_id_column_name => ancestor.id, ancestor_type_column_name => ancestor.class.to_s)
@@ -101,7 +101,9 @@ module Dag
       belongs_to :ancestor, foreign_key: ancestor_id_column_name, class_name: acts_as_dag_options[:node_class_name]
       belongs_to :descendant, foreign_key: descendant_id_column_name, class_name: acts_as_dag_options[:node_class_name]
 
-      validates ancestor_id_column_name.to_sym, uniqueness: { scope: [descendant_id_column_name] }
+      uniqueness_scope = [descendant_id_column_name]
+      uniqueness_scope << scoped_record_id_column_name.to_sym if scoped_record_id_column_name.present?
+      validates ancestor_id_column_name.to_sym, uniqueness: { scope: uniqueness_scope }
 
       scope :with_ancestor, lambda { |ancestor, scoped_record_id = nil|
         scope = where(ancestor_id_column_name => ancestor.id)
