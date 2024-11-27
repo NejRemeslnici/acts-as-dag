@@ -200,6 +200,14 @@ module Dag
 
       class_eval <<-EOL0, __FILE__, __LINE__ + 1
         attr_accessor :#{options[:scoped_record_id_column]}
+
+        def scoped_record_id=(value) 
+          @#{options[:scoped_record_id_column]} = value
+        end
+
+        def scoped_record_id 
+          #{options[:scoped_record_id_column]}
+        end
       EOL0
     else
       class_eval <<-EOL0, __FILE__, __LINE__ + 1

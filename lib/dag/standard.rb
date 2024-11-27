@@ -12,13 +12,13 @@ module Dag
       end
 
       # Factory Construction method that creates an endpoint from a model
-      def self.from_resource(resource, scoped_record_id)
-        new(resource.id, scoped_record_id)
+      def self.from_resource(resource)
+        new(resource.id, resource.scoped_record_id)
       end
 
       # Factory Construction method that creates an endpoint from a model if necessary
-      def self.from(obj, scoped_record_id)
-        obj.is_a?(EndPoint) ? obj : from_resource(obj, scoped_record_id)
+      def self.from(obj)
+        obj.is_a?(EndPoint) ? obj : from_resource(obj)
       end
 
       # Initializes an endpoint based on an Id

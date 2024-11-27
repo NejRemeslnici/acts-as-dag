@@ -7,13 +7,13 @@ ActiveRecord::Base.establish_connection(adapter: "sqlite3", database: "#{File.di
 
 # Used for basic graph link testing
 class Default < ActiveRecord::Base
-  acts_as_dag_links node_class_name: "Node"
+  acts_as_dag_links node_class_name: "Node", scoped_record_id_column: "record_id"
   self.table_name = "edges"
 end
 
 # Used for polymorphic graph link testing
 class Poly < ActiveRecord::Base
-  acts_as_dag_links polymorphic: true
+  acts_as_dag_links polymorphic: true, scoped_record_id_column: "record_id"
   self.table_name = "poly_edges"
 end
 
@@ -23,42 +23,43 @@ class Redefiner < ActiveRecord::Base
                     direct_column: "d",
                     count_column: "c",
                     ancestor_id_column: "foo_id",
-                    descendant_id_column: "bar_id"
+                    descendant_id_column: "bar_id",
+                    scoped_record_id_column: "record_id"
   self.table_name = "edges2"
 end
 
 class Node < ActiveRecord::Base
-  has_dag_links link_class_name: "Default"
+  has_dag_links link_class_name: "Default", scoped_record_id_column: "record_id"
   self.table_name = "nodes"
 end
 
 class RedefNode < ActiveRecord::Base
-  has_dag_links link_class_name: "Redefiner"
+  has_dag_links link_class_name: "Redefiner", scoped_record_id_column: "record_id"
   self.table_name = "redef_nodes"
 end
 
 class AlphaNode < ActiveRecord::Base
-  has_dag_links link_class_name: "Poly",
+  has_dag_links link_class_name: "Poly", scoped_record_id_column: "record_id",
                 descendant_class_names: %w[BetaNode GammaNode ZetaNode]
   self.table_name = "alpha_nodes"
 end
 
 class BetaNode < ActiveRecord::Base
-  has_dag_links link_class_name: "Poly",
+  has_dag_links link_class_name: "Poly", scoped_record_id_column: "record_id",
                 ancestor_class_names: %w[AlphaNode BetaNode],
                 descendant_class_names: %w[BetaNode GammaNode ZetaNode]
   self.table_name = "beta_nodes"
 end
 
 class GammaNode < ActiveRecord::Base
-  has_dag_links link_class_name: "Poly",
+  has_dag_links link_class_name: "Poly", scoped_record_id_column: "record_id",
                 ancestor_class_names: %w[AlphaNode BetaNode GammaNode],
                 descendant_class_names: %w[GammaNode ZetaNode]
   self.table_name = "gamma_nodes"
 end
 
 class ZetaNode < ActiveRecord::Base
-  has_dag_links link_class_name: "Poly",
+  has_dag_links link_class_name: "Poly", scoped_record_id_column: "record_id",
                 ancestor_class_names: %w[AlphaNode BetaNode GammaNode]
   self.table_name = "zeta_nodes"
 end
@@ -74,6 +75,7 @@ class DagTest < Minitest::Test
         t.column :descendant_id, :integer
         t.column :direct, :boolean
         t.column :count, :integer
+        t.column :record_id, :integer
       end
 
       create_table :edges2 do |t|
@@ -81,6 +83,7 @@ class DagTest < Minitest::Test
         t.column :bar_id, :integer
         t.column :d, :boolean
         t.column :c, :integer
+        t.column :record_id, :integer
       end
 
       create_table :nodes do |t|
@@ -114,6 +117,7 @@ class DagTest < Minitest::Test
         t.column :descendant_type, :string
         t.column :direct, :boolean
         t.column :count, :integer
+        t.column :record_id, :integer
       end
     end
   end
@@ -199,11 +203,17 @@ class DagTest < Minitest::Test
     assert_equal "descendant_type", Poly.new.descendant_type_column_name
   end
 
+  # Tests count_column_name instance and class method
+  def test_scoped_record_id_column_name
+    assert_equal "record_id", Default.scoped_record_id_column_name
+    assert_equal "record_id", Default.new.scoped_record_id_column_name
+  end
+
   # Tests that count is a protected function and cannot be assigned
   def test_count_protected
-    assert_raises(ActiveRecord::ActiveRecordError) { Default.new(count: 1) }
+    assert_raises(ActiveRecord::ActiveRecordError) { Default.new(count: 1, record_id: 1) }
     assert_raises(ActiveRecord::ActiveRecordError) do
-      d = Default.new
+      d = Default.new(record_id: 1)
       d.count = 8
     end
   end
@@ -217,7 +227,7 @@ class DagTest < Minitest::Test
 
   # Tests that make_direct instance method trues direct value and registers change
   def test_make_direct_method
-    d = Default.new
+    d = Default.new(record_id: 1)
     assert !d.direct_changed?
     d.make_direct
     assert d.direct_changed?
@@ -226,7 +236,7 @@ class DagTest < Minitest::Test
 
   # Tests that make_indirect instance method falses direct value and registers change
   def test_make_indirect_method
-    d = Default.new
+    d = Default.new(record_id: 1)
     assert !d.direct_changed?
     d.make_indirect
     assert d.direct_changed?
@@ -235,92 +245,104 @@ class DagTest < Minitest::Test
 
   # Tests that changes register initial settings
   def test_direct_changed_init_pass_in
-    d = Default.new(direct: true)
+    d = Default.new(direct: true, record_id: 1)
     assert d.direct_changed?
   end
 
   # Tests that endpoint construction works
   def test_make_endpoint
-    a = Node.create!
-    p = Default::EndPoint.from(a, nil)
+    a = Node.create!(record_id: 1)
+    p = Default::EndPoint.from(a)
     assert p.matches?(a)
   end
 
   # Tests that polymorphic endpoint construction works
   def test_make_endpoint_poly
-    a = AlphaNode.create!
-    p = Poly::EndPoint.from(a, nil)
+    a = AlphaNode.create!(record_id: 1)
+    p = Poly::EndPoint.from(a)
     assert p.matches?(a)
   end
 
   # Tests that source is correct
   def test_source_method
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
-    edge = Default.new(ancestor: a, descendant: b)
+    edge = Default.new(ancestor: a, descendant: b, record_id: 1)
     s = edge.source
     assert s.matches?(a)
+    edge = Default.new(ancestor: a, descendant: b, record_id: 2)
+    s = edge.source
+    assert !s.matches?(a)
   end
 
   # Tests that sink is correct
   def test_sink_method
-    a = Node.create!
-    b = Node.create!
-    edge = Default.new(ancestor: a, descendant: b)
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
+    edge = Default.new(ancestor: a, descendant: b, record_id: 1)
     s = edge.sink
     assert s.matches?(b)
+    edge = Default.new(ancestor: a, descendant: b, record_id: 2)
+    s = edge.sink
+    assert !s.matches?(b)
   end
 
   # Tests that source is correct for polymorphic graphs
   def test_source_method_poly
-    a = AlphaNode.create!
+    a = AlphaNode.create!(record_id: 1)
     b = AlphaNode.create!
-    edge = Poly.new(ancestor: a, descendant: b)
+    edge = Poly.new(ancestor: a, descendant: b, record_id: 1)
     s = edge.source
     assert s.matches?(a)
+    edge = Poly.new(ancestor: a, descendant: b, record_id: 2)
+    s = edge.source
+    assert !s.matches?(a)
   end
 
   # Tests that sink is correct for polymorphic graphs
   def test_sink_method_poly
-    a = AlphaNode.create!
-    b = AlphaNode.create!
-    edge = Poly.new(ancestor: a, descendant: b)
+    a = AlphaNode.create!(record_id: 1)
+    b = AlphaNode.create!(record_id: 1)
+    edge = Poly.new(ancestor: a, descendant: b, record_id: 1)
     s = edge.sink
     assert s.matches?(b)
+    edge = Poly.new(ancestor: a, descendant: b, record_id: 2)
+    s = edge.sink
+    assert !s.matches?(b)
   end
 
   # Tests that source is correct when created from a model
   def test_source_method_on_resource
-    a = Node.create!
-    s = Default::Source.from(a, nil)
+    a = Node.create!(record_id: 1)
+    s = Default::Source.from(a)
     assert s.matches?(a)
   end
 
   # Tests that sink is correct when created from a model
   def test_sink_method_on_resource
-    a = Node.create!
-    s = Default::Source.from(a, nil)
+    a = Node.create!(record_id: 1)
+    s = Default::Source.from(a)
     assert s.matches?(a)
   end
 
   # Tests that source is correct when created from a model for a polymorphic graph
   def test_source_method_on_resource_poly
-    a = AlphaNode.create!
-    s = Poly::Source.from(a, nil)
+    a = AlphaNode.create!(record_id: 1)
+    s = Poly::Source.from(a)
     assert s.matches?(a)
   end
 
   # Tests that sink is correct when created from a model for a polymorphic graph
   def test_sink_method_on_resource_poly
-    a = AlphaNode.create!
-    s = Poly::Source.from(a, nil)
+    a = AlphaNode.create!(record_id: 1)
+    s = Poly::Source.from(a)
     assert s.matches?(a)
   end
 
   # Tests that class method for build works
   def test_build_lonely_edge
-    a = Node.create!
-    b = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
     e = Default.build_edge(a, b)
     assert e.source.matches?(a)
     assert e.sink.matches?(b)
@@ -328,7 +350,7 @@ class DagTest < Minitest::Test
 
   # Tests that create_edge works
   def test_create_lonely_edge
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     e = Default.create_edge(a, b)
     assert e
@@ -336,7 +358,7 @@ class DagTest < Minitest::Test
 
   # Tests that create_edge! works
   def test_create_exla_lonely_edge
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     e = Default.create_edge!(a, b)
     assert_equal e.ancestor, a
@@ -345,7 +367,7 @@ class DagTest < Minitest::Test
 
   # Tests that find edge works
   def test_find_lonely_edge
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     Default.create_edge(a, b)
     e = Default.find_edge(a, b)
@@ -355,7 +377,7 @@ class DagTest < Minitest::Test
 
   # Tests that find link works and find_edge rejects indirects
   def test_find_lonely_link
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     Default.create_edge(a, b)
     e = Default.find_link(a, b)
@@ -365,27 +387,32 @@ class DagTest < Minitest::Test
 
   # Tests that we catch links that would be duplicated on creation
   def test_validation_on_create_duplication_catch
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     Default.create_edge(a, b)
     e2 = Default.create_edge(a, b)
     assert !e2
     assert_raises(ActiveRecord::RecordInvalid) { Default.create_edge!(a, b) }
+    a.record_id = 2
+    assert Default.create_edge(a, b)
   end
 
   # Tests that we catch reversed links on creation (cycles)
   def test_validation_on_create_reverse_catch
-    a = Node.create!
-    b = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
     Default.create_edge(a, b)
     e2 = Default.create_edge(b, a)
     assert !e2
     assert_raises(ActiveRecord::RecordInvalid) { Default.create_edge!(b, a) }
+    a.record_id = 2
+    b.record_id = 2
+    assert Default.create_edge(b, a)
   end
 
   # Tests that we catch self to self links on creation (self cycles)
   def test_validation_on_create_short_cycle_catch
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     e = Default.create_edge(a, a)
     assert !e
     assert_raises(ActiveRecord::RecordInvalid) { e = Default.create_edge!(a, a) }
@@ -393,7 +420,7 @@ class DagTest < Minitest::Test
 
   # Tests that a direct edge with 1 count cannot be made indirect on update
   def test_validation_on_update_indirect_catch
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     e = Default.create_edge!(a, b)
     e.make_indirect
@@ -403,7 +430,7 @@ class DagTest < Minitest::Test
 
   # Tests that nochanges fails save and save!
   def test_validation_on_update_no_change_catch
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     e = Default.create_edge!(a, b)
     assert !e.save
@@ -412,8 +439,8 @@ class DagTest < Minitest::Test
 
   # Tests that destroyable? works as required
   def test_destroyable
-    a = Node.create!
-    b = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
     e = Default.create_edge!(a, b)
     assert e.destroyable?
     c = Node.create!
@@ -423,8 +450,8 @@ class DagTest < Minitest::Test
 
   # Tests that destroy link works
   def test_destroy_link
-    a = Node.create!
-    b = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
     e = Default.create_edge!(a, b)
     e.destroy
     assert Default.find_edge(a, b).nil?
@@ -436,8 +463,8 @@ class DagTest < Minitest::Test
 
   # Tests the balancing of a graph in the transitive simple case
   def test_create_pair_link_transitive
-    a = Node.create!
-    b = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
     c = Node.create!
     Default.create_edge!(a, b)
     Default.create_edge!(b, c)
@@ -450,8 +477,8 @@ class DagTest < Minitest::Test
 
   # Tests the ability to make an indirect link direct
   def test_make_direct_link
-    a = Node.create!
-    b = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
     c = Node.create!
     Default.create_edge!(a, b)
     Default.create_edge!(b, c)
@@ -464,8 +491,8 @@ class DagTest < Minitest::Test
 
   # Tests the ability to make a direct link indirect
   def test_make_indirect_link
-    a = Node.create!
-    b = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
     c = Node.create!
     Default.create_edge!(a, b)
     Default.create_edge!(b, c)
@@ -480,9 +507,9 @@ class DagTest < Minitest::Test
 
   # Tests advanced transitive cases for chain graph rebalancing
   def test_create_chain_disjoint
-    a = Node.create!
-    b = Node.create!
-    c = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
+    c = Node.create!(record_id: 1)
     d = Node.create!
     Default.create_edge!(a, b)
     Default.create_edge!(c, d)
@@ -507,13 +534,23 @@ class DagTest < Minitest::Test
     assert_nil testnil
   end
 
+  # Tests that link not exists between different trees
+  def test_no_link_between_different_trees
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 2)
+    Default.create_edge!(a, b)
+    c = Node.create!
+    Default.create_edge!(b, c)
+    assert !Default.find_link(a, c)
+  end
+
   ##########################
   # TESTS FOR has_dag_links #
   ##########################
 
   # Tests has_many links_as_ancestor
   def test_has_many_links_as_ancestor
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     e = a.links_as_ancestor.build
     e.descendant = b
@@ -524,7 +561,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many links_as_descendant
   def test_has_many_links_as_descendant
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     e = b.links_as_descendant.build
     e.ancestor = a
@@ -535,7 +572,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many links_as_parent
   def test_has_many_links_as_parent
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     e = a.links_as_parent.build
     e.descendant = b
@@ -546,7 +583,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many links_as_child
   def test_has_many_links_as_child
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     e = b.links_as_child.build
     e.ancestor = a
@@ -557,7 +594,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many descendants
   def test_has_many_descendants
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     a.descendants << b
     e = Default.find_link(a, b)
@@ -566,7 +603,7 @@ class DagTest < Minitest::Test
 
   # Tests self_and_descendants
   def test_self_and_descendants
-    a = Node.create!(name: "a")
+    a = Node.create!(name: "a", record_id: 1)
     b = Node.create!(name: "b")
     a.descendants << b
     assert_equal [a, b], a.self_and_descendants
@@ -574,8 +611,8 @@ class DagTest < Minitest::Test
 
   # Tests has_many ancestors
   def test_has_many_ancestors
-    a = Node.create!
-    b = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
     b.ancestors << a
     e = Default.find_link(a, b)
     assert !e.nil?
@@ -583,7 +620,7 @@ class DagTest < Minitest::Test
 
   # Tests self_and_ancestors
   def test_self_and_ancestors
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     b.ancestors << a
     assert_equal [b, a], b.self_and_ancestors
@@ -591,7 +628,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many children
   def test_has_many_children
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.create!
     a.children << b
     e = Default.find_link(a, b)
@@ -600,15 +637,15 @@ class DagTest < Minitest::Test
 
   # Tests has_many parents
   def test_has_many_parents
-    a = Node.create!
-    b = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
     b.parents << a
     e = Default.find_link(a, b)
     assert !e.nil?
   end
 
   def test_has_many_parents_build_assign
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     b = Node.new
     b.parents << a
     assert b.valid?, b.errors.full_messages
@@ -616,7 +653,7 @@ class DagTest < Minitest::Test
 
   # Tests leaf? instance method
   def test_leaf_instance_method
-    a = Node.create!
+    a = Node.create!(record_id: 1)
     assert a.leaf?
     b = Node.create!
     a.children << b
@@ -628,8 +665,8 @@ class DagTest < Minitest::Test
 
   # Tests root? instance method
   def test_root_instance_method
-    a = Node.create!
-    b = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
     assert b.root?
     a.children << b
     a.reload
@@ -640,7 +677,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many links_as_ancestor
   def test_has_many_links_as_ancestor_poly
-    a = BetaNode.create!
+    a = BetaNode.create!(record_id: 1)
     b = BetaNode.create!
     e = a.links_as_ancestor.build
     e.descendant = b
@@ -651,7 +688,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many links_as_descendant
   def test_has_many_links_as_descendant_poly
-    a = BetaNode.create!
+    a = BetaNode.create!(record_id: 1)
     b = BetaNode.create!
     e = b.links_as_descendant.build
     e.ancestor = a
@@ -662,7 +699,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many links_as_parent
   def test_has_many_links_as_parent_poly
-    a = BetaNode.create!
+    a = BetaNode.create!(record_id: 1)
     b = BetaNode.create!
     e = a.links_as_parent.build
     e.descendant = b
@@ -673,7 +710,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many links_as_child
   def test_has_many_links_as_child_poly
-    a = BetaNode.create!
+    a = BetaNode.create!(record_id: 1)
     b = BetaNode.create!
     e = b.links_as_child.build
     e.ancestor = a
@@ -684,7 +721,7 @@ class DagTest < Minitest::Test
 
   # Tests leaf? instance method
   def test_leaf_instance_method_poly
-    a = BetaNode.create!
+    a = BetaNode.create!(record_id: 1)
     assert a.leaf?
     b = BetaNode.create!
     a.child_beta_nodes << b
@@ -696,8 +733,8 @@ class DagTest < Minitest::Test
 
   # Tests root? instance method
   def test_root_instance_method_poly
-    a = BetaNode.create!
-    b = BetaNode.create!
+    a = BetaNode.create!(record_id: 1)
+    b = BetaNode.create!(record_id: 1)
     assert b.root?
     a.child_beta_nodes << b
     a.reload
@@ -708,7 +745,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many links_as_ancestor_for_*
   def test_has_many_links_as_ancestor_for
-    a = AlphaNode.create!
+    a = AlphaNode.create!(record_id: 1)
     b = BetaNode.create!
     e = a.links_as_ancestor_for_beta_nodes.build
     e.descendant = b
@@ -719,7 +756,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many links_as_descendant_for_*
   def test_has_many_links_as_descendant_for
-    a = AlphaNode.create!
+    a = AlphaNode.create!(record_id: 1)
     b = BetaNode.create!
     e = b.links_as_descendant_for_alpha_nodes.build
     e.ancestor = a
@@ -730,7 +767,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many links_as_parent_for_*
   def test_has_many_links_as_parent_for
-    a = AlphaNode.create!
+    a = AlphaNode.create!(record_id: 1)
     b = BetaNode.create!
     e = a.links_as_parent_for_beta_nodes.build
     e.descendant = b
@@ -741,7 +778,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many links_as_child_for_*
   def test_has_many_links_as_child_for
-    a = AlphaNode.create!
+    a = AlphaNode.create!(record_id: 1)
     b = BetaNode.create!
     e = b.links_as_child_for_alpha_nodes.build
     e.ancestor = a
@@ -752,7 +789,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many descendant_type
   def test_has_many_descendant_dvds
-    a = AlphaNode.create!
+    a = AlphaNode.create!(record_id: 1)
     b = BetaNode.create!
     a.descendant_beta_nodes << b
     e = Poly.find_link(a, b)
@@ -761,8 +798,8 @@ class DagTest < Minitest::Test
 
   # Tests has_many ancestor_type
   def test_has_many_ancestor_dvds
-    a = AlphaNode.create!
-    b = BetaNode.create!
+    a = AlphaNode.create!(record_id: 1)
+    b = BetaNode.create!(record_id: 1)
     b.ancestor_alpha_nodes << a
     e = Poly.find_link(a, b)
     assert !e.nil?
@@ -770,7 +807,7 @@ class DagTest < Minitest::Test
 
   # Tests has_many child_dvds
   def test_has_many_child_dvds
-    a = AlphaNode.create!
+    a = AlphaNode.create!(record_id: 1)
     b = BetaNode.create!
     a.child_beta_nodes << b
     e = Poly.find_link(a, b)
@@ -779,8 +816,8 @@ class DagTest < Minitest::Test
 
   # Tests has_many parents
   def test_has_many_parent_dvds
-    a = AlphaNode.create!
-    b = BetaNode.create!
+    a = AlphaNode.create!(record_id: 1)
+    b = BetaNode.create!(record_id: 1)
     b.parent_alpha_nodes << a
     e = Poly.find_link(a, b)
     assert !e.nil?
@@ -788,8 +825,8 @@ class DagTest < Minitest::Test
 
   # Tests leaf_for_*? instance method
   def test_leaf_for_instance_method
-    a = BetaNode.create!
-    b = BetaNode.create!
+    a = BetaNode.create!(record_id: 1)
+    b = BetaNode.create!(record_id: 1)
     assert a.leaf_for_beta_nodes?
     a.ancestor_beta_nodes << b
     a.reload
@@ -799,8 +836,8 @@ class DagTest < Minitest::Test
 
   # Tests root_for_*? instance method
   def test_root_for_instance_method
-    a = BetaNode.create!
-    b = BetaNode.create!
+    a = BetaNode.create!(record_id: 1)
+    b = BetaNode.create!(record_id: 1)
     assert a.root_for_beta_nodes?
     a.descendant_beta_nodes << b
     a.reload
@@ -810,24 +847,25 @@ class DagTest < Minitest::Test
 
   # Tests that longest_path_between works
   def test_longest_path_between
-    a = Node.create!
-    b = Node.create!
-    c = Node.create!
-    d = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
+    c = Node.create!(record_id: 1)
+    d = Node.create!(record_id: 1)
     Default.create_edge(a, b)
     Default.create_edge(b, c)
     Default.create_edge(a, c)
     Default.create_edge(c, d)
     path = Default.longest_path_between(a, d)
+    p path
     assert_equal [b, c, d], path
   end
 
   # Tests that shortest_path_between works
   def test_shortest_path_between
-    a = Node.create!
-    b = Node.create!
-    c = Node.create!
-    d = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
+    c = Node.create!(record_id: 1)
+    d = Node.create!(record_id: 1)
     Default.create_edge(a, b)
     Default.create_edge(b, c)
     Default.create_edge(a, c)
@@ -838,8 +876,8 @@ class DagTest < Minitest::Test
 
   # Tests that perpetuate upon destroy works
   def tests_perpetuate_upon_destroy_link
-    a = Node.create!
-    b = Node.create!
+    a = Node.create!(record_id: 1)
+    b = Node.create!(record_id: 1)
     c = Node.create!
     e = Default.create_edge!(a, b)
     Default.create_edge!(b, c)

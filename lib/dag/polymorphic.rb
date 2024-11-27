@@ -17,13 +17,13 @@ module Dag
       end
 
       # Factory Construction method that creates an EndPoint instance from a model
-      def self.from_resource(resource, scoped_record_id)
-        new(resource.id, resource.class.to_s, scoped_record_id)
+      def self.from_resource(resource)
+        new(resource.id, resource.class.to_s, resource.scoped_record_id)
       end
 
       # Factory Construction method that creates an EndPoint instance from a model if necessary
-      def self.from(obj, scoped_record_id)
-        obj.is_a?(EndPoint) ? obj : from_resource(obj, scoped_record_id)
+      def self.from(obj)
+        obj.is_a?(EndPoint) ? obj : from_resource(obj)
       end
 
       # Initializes the EndPoint instance with an id and type

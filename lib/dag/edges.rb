@@ -4,39 +4,28 @@ module Dag
       base.send(:include, EdgeInstanceMethods)
     end
 
-    def ancestor_scoped_record_id(ancestor)
-      if ancestor.respond_to?(:scoped_record_id)
-        ancestor.scoped_record_id
-      elsif scoped_record_id_column_name
-        ancestor.public_send(scoped_record_id_column_name)
-      end
-    end
-
     # Class methods that extend the link model for both polymorphic and non-polymorphic graphs
     # Returns a new edge between two points
     def build_edge(ancestor, descendant)
-      scoped_record_id = ancestor_scoped_record_id(ancestor)
-      source = self::EndPoint.from(ancestor, scoped_record_id)
-      sink = self::EndPoint.from(descendant, scoped_record_id)
-      path = new(conditions_for(source, sink, scoped_record_id))
+      source = self::EndPoint.from(ancestor)
+      sink = self::EndPoint.from(descendant)
+      path = new(conditions_for(source, sink, source.scoped_record_id))
       path.make_direct
       path
     end
 
     # Finds an edge between two points, Must be direct
     def find_edge(ancestor, descendant)
-      scoped_record_id = ancestor_scoped_record_id(ancestor)
-      source = self::EndPoint.from(ancestor, scoped_record_id)
-      sink = self::EndPoint.from(descendant, scoped_record_id)
-      where(conditions_for(source, sink, scoped_record_id).merge!(direct_column_name => true)).first
+      source = self::EndPoint.from(ancestor)
+      sink = self::EndPoint.from(descendant)
+      where(conditions_for(source, sink, source.scoped_record_id).merge!(direct_column_name => true)).first
     end
 
     # Finds a link between two points
     def find_link(ancestor, descendant)
-      scoped_record_id = ancestor_scoped_record_id(ancestor)
-      source = self::EndPoint.from(ancestor, scoped_record_id)
-      sink = self::EndPoint.from(descendant, scoped_record_id)
-      where(conditions_for(source, sink, scoped_record_id)).first
+      source = self::EndPoint.from(ancestor)
+      sink = self::EndPoint.from(descendant)
+      where(conditions_for(source, sink, source.scoped_record_id)).first
     end
 
     # Finds or builds an edge between two points
@@ -77,6 +66,7 @@ module Dag
     def longest_path_between(ancestor, descendant, path = [])
       longest = []
       ancestor.children.each do |child|
+        child.scoped_record_id = ancestor.scoped_record_id
         if child == descendant
           temp = path.clone
           temp << child
@@ -95,6 +85,7 @@ module Dag
     def shortest_path_between(ancestor, descendant, path = [])
       shortest = []
       ancestor.children.each do |child|
+        child.scoped_record_id = ancestor.scoped_record_id
         if child == descendant
           temp = path.clone
           temp << child
